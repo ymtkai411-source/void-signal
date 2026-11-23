@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>VOID SIGNAL - prototype</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090b10;color:#e8e5dc;font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;display:flex;min-height:100svh;align-items:center;justify-content:center;padding:12px}
+#shell{width:min(100%,900px);border:1px solid #424653;background:#11151d;box-shadow:0 18px 60px #0009;padding:12px}
+header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 2px 10px}h1{font-size:clamp(16px,3vw,22px);letter-spacing:.18em;margin:0;font-weight:700}#status{font-size:12px;color:#aeb5c2;text-align:right}
+#screen{position:relative;width:100%;aspect-ratio:16/9;background:#090c12;overflow:hidden;border:1px solid #596070}
+canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+#overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#05070bd9;padding:16px}
+.panel{width:min(520px,100%);border:1px solid #9298a4;background:#111722;padding:18px;box-shadow:0 8px 32px #000b}
+.panel h2{font-size:17px;letter-spacing:.12em;margin:0 0 10px}.panel p{line-height:1.8;font-size:14px;color:#d4d5d4;white-space:pre-line}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button, .utility button{background:#252d3a;color:#f2f0e9;border:1px solid #737d8d;padding:10px 14px;font-size:14px}
+.actions button:active,.utility button:active{background:#485365}
+footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}.hint{font-size:12px;color:#aeb5c2}
+.utility{display:flex;gap:8px}.utility button{font-size:12px;padding:7px 10px}
+#mobile{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px;user-select:none;touch-action:none}
+.pad{display:grid;grid-template-columns:42px 42px 42px;grid-template-rows:42px 42px 42px;gap:4px}
+.pad button,.interact{background:#202734;border:1px solid #596577;color:#fff;border-radius:7px;font-size:18px;touch-action:none}
+.pad button[data-dir=up]{grid-column:2;grid-row:1}.pad button[data-dir=left]{grid-column:1;grid-row:2}.pad button[data-dir=down]{grid-column:2;grid-row:2}.pad button[data-dir=right]{grid-column:3;grid-row:2}
+.interact{height:54px;min-width:92px;font-size:14px;letter-spacing:.08em}
+@media(min-width:700px){#mobile{max-width:360px;margin-left:auto;margin-right:auto}}
+</style>
+</head>
+<body>
+<div id="shell">
+<header><h1>VOID SIGNAL</h1><div id="status">CHAPTER 00 · 無音区<br>相棒：ミオ（ 三毛猫 ）<br>記録：未保存</div></header>
+<div id="screen"><canvas id="game" width="640" height="360" aria-label="ゲーム画面"></canvas><div id="overlay"><div class="panel"><h2 id="panelTitle"></h2><p id="panelText"></p><div class="actions" id="panelActions"></div></div></div></div>
+<footer><div class="hint">移動：矢印キー / WASD　調べる・会話：Enter / Space</div><div class="utility"><button id="save">記録する</button><button id="load">記録を読む</button></div></footer>
+<div id="mobile"><div class="pad"><button data-dir="up">▲</button><button data-dir="left">◀</button><button data-dir="down">▼</button><button data-dir="right">▶</button></div><button class="interact" id="act">調べる</button></div>
+</div>
+<script>
+(()=>{
+const c=document.getElementById('game'),ctx=c.getContext('2d'),overlay=document.getElementById('overlay');
+ctx.imageSmoothingEnabled=false;
+const map=[
+"####################",
+"#....#.............#",
+"#....#..######.....#",
+"#.......#....#.....#",
+"###.#####....#..####",
+"#...#........#.....#",
+"#...#..#######.....#",
+"#..................#",
+"#..######.....##...#",
+"#.............#....#",
+"#....####.....#....#",
+"#.............#....#",
+"####################"
+];
+const tile=32;
+let player={x:2,y:9},cat={x:1,y:9},facing={x:0,y:-1},talked=false,catPetted=false,steps=0,mode='world',enemyHp=12;
+const npc={x:15,y:5};
+const status=document.getElementById('status');
+function tileAt(x,y){return map[y]?.[x]||'#'}
+function rect(x,y,w,h,color){ctx.fillStyle=color;ctx.fillRect(x,y,w,h)}
+function draw(){
+ rect(0,0,640,360,'#0a0e15');
+ for(let y=0;y<map.length;y++)for(let x=0;x<map[y].length;x++){
+  let t=map[y][x],px=x*32,py=y*27.7;
+  if(t==='#'){rect(px,py,32,28,'#252d37');rect(px+2,py+2,28,24,'#1b222c');rect(px,py,32,3,'#343e4b')}
+  else{rect(px,py,32,28,'#111923');if((x*7+y*11)%5===0)rect(px+8,py+8,2,2,'#27313a')}
+ }
+ // strange signal marks
+ for(let i=0;i<5;i++){let x=90+i*95;rect(x,46+(i%2)*8,2,2,'#596878')}
+ // NPC
+ drawPerson(npc.x*32+16, npc.y*27.7+14,'#b8b5a7','#343b48');
+ // companion: calico cat
+ drawCat(cat.x*32+16,cat.y*27.7+17);
+ // player
+ drawPerson(player.x*32+16,player.y*27.7+14,'#d6d0bd','#8d4651');
+ // atmospheric scan lines
+ ctx.fillStyle='#d9e1ef08';for(let y=0;y<360;y+=4)ctx.fillRect(0,y,640,1);
+ ctx.fillStyle='#cbd2dc';ctx.font='12px monospace';ctx.fillText('THE QUIET DISTRICT',18,22);
+ ctx.fillStyle='#758291';ctx.fillText('SIGNAL: WEAK',520,22);
+ if(mode==='battle')drawBattle();
+}
+function drawPerson(x,y,coat,face){
+ rect(x-7,y-10,14,17,coat);rect(x-6,y-17,12,9,face);rect(x-5,y-18,10,3,'#17191f');rect(x-5,y+7,4,5,'#11151c');rect(x+2,y+7,4,5,'#11151c');
+}
+function drawCat(x,y){
+ // small pixel-art calico cat: cream base, orange and dark patches
+ rect(x-8,y-5,16,10,'#e6dfc9');rect(x-7,y-10,5,6,'#e6dfc9');rect(x+2,y-10,5,6,'#e6dfc9');
+ rect(x-7,y-12,4,4,'#b96e42');rect(x+3,y-11,4,4,'#272832');
+ rect(x-5,y-2,4,3,'#b96e42');rect(x+2,y+1,5,3,'#292a32');
+ rect(x-3,y-1,2,2,'#d7b95e');rect(x+3,y-1,2,2,'#d7b95e');
+ rect(x-1,y+1,2,1,'#443b39');rect(x+7,y-1,5,2,'#e6dfc9');rect(x+10,y-3,2,3,'#e6dfc9');
+}
+function drawBattle(){
+ rect(0,0,640,360,'#0b1018');rect(0,230,640,130,'#151d28');
+ // opponent: abstract static shape
+ rect(400,115,70,85,'#747783');rect(390,130,90,55,'#4b5360');rect(414,102,10,10,'#d4d0c5');rect(448,102,10,10,'#d4d0c5');
+ drawCat(185,184);ctx.fillStyle='#d6d0bd';ctx.font='12px monospace';ctx.fillText('MIO',166,218);
+ rect(20,18,240,54,'#171e29');ctx.fillStyle='#eee';ctx.font='16px monospace';ctx.fillText('無名のノイズ',34,42);ctx.font='12px monospace';ctx.fillText('HP '+enemyHp+' / 12',34,60);
+ ctx.fillStyle='#cbd2dc';ctx.font='15px monospace';ctx.fillText('何かが、こちらを見ている。',28,265);
+}
+function openPanel(title,text,buttons){
+ document.getElementById('panelTitle').textContent=title;document.getElementById('panelText').textContent=text;
+ const a=document.getElementById('panelActions');a.innerHTML='';
+ buttons.forEach(([label,fn])=>{let b=document.createElement('button');b.textContent=label;b.onclick=fn;a.appendChild(b)});
+ overlay.style.display='flex';
+}
+function closePanel(){overlay.style.display='none'}
+function interact(){
+ if(overlay.style.display==='flex')return;
+ if(mode==='world' && Math.abs(player.x-cat.x)+Math.abs(player.y-cat.y)<=1){
+  catPetted=true;
+  openPanel('三毛猫','猫は小さく鳴いて、あなたの足に身体をすり寄せた。\n\nこの子は、ずっと前からあなたを知っている。\n首輪の裏には、かすれた文字がある。\n\n「ミオ」',[['撫でる',()=>{closePanel();draw()}],['離れる',()=>{closePanel();draw()}]]);
+  return;
+ }
+ if(mode==='battle'){battleTurn();return}
+ const tx=player.x+facing.x,ty=player.y+facing.y;
+ if(Math.abs(player.x-npc.x)+Math.abs(player.y-npc.y)<=1 || (tx===npc.x&&ty===npc.y)){
+  if(!talked){talked=true;openPanel('通行人','「この街では、音が先に死ぬ。\n次に名前が消える。\n……君は、まだ名前を覚えているか？」',[['……覚えている',closePanel],['わからない',closePanel]])}
+  else openPanel('通行人','「北の通路から、呼び出し音がする。\nでも電話線は、ずっと前に切れたよ。」',[['離れる',closePanel]]);
+ }else if(tileAt(tx,ty)==='#'){
+  openPanel('壁','冷たい壁だ。表面に、小さな傷が刻まれている。',[['戻る',closePanel]]);
+ }else if(player.x===3&&player.y===7){
+  openPanel('古い端末','画面には短い文字だけが残っている。\n\n「信号を探せ」',[['閉じる',closePanel]]);
+ }else{
+  openPanel('静寂','何もない。\nそれでも、誰かに見られている気がする。',[['戻る',closePanel]]);
+ }
+}
+function battleTurn(){
+ enemyHp-=6;
+ if(enemyHp<=0){mode='world';player.x=14;player.y=5;openPanel('戦闘終了','ノイズはほどけて、床の染みになった。\n\n遠くで、小さなベルが一度だけ鳴った。',[['先へ進む',()=>{closePanel();draw()}]])}
+ else{draw();openPanel('戦闘','あなたの攻撃に続き、ミオが飛びかかった。ノイズの輪郭が薄くなる。',[['攻撃する',()=>{closePanel();draw()}]])}
+}
+function move(dx,dy){
+ if(overlay.style.display==='flex'||mode!=='world')return;
+ facing={x:dx,y:dy};let nx=player.x+dx,ny=player.y+dy;
+ if(tileAt(nx,ny)!=='#'){
+  const oldX=player.x,oldY=player.y;player.x=nx;player.y=ny;steps++;
+  // The cat follows one tile behind, choosing a nearby walkable tile.
+  if(Math.abs(cat.x-oldX)+Math.abs(cat.y-oldY)<=2){cat.x=oldX;cat.y=oldY;}
+ }
+ if(player.x===10&&player.y===7&&steps>5){mode='battle';enemyHp=12;openPanel('遭遇','空間が、紙のように折れ曲がった。\nミオはあなたの前に出て、低く唸った。',[['ミオと応戦する',()=>{closePanel();draw()}]])}
+ draw();
+}
+document.addEventListener('keydown',e=>{
+ const k=e.key.toLowerCase();let d={arrowup:[0,-1],w:[0,-1],arrowdown:[0,1],s:[0,1],arrowleft:[-1,0],a:[-1,0],arrowright:[1,0],d:[1,0]}[k];
+ if(d){e.preventDefault();move(...d)}else if(k==='enter'||k===' '){e.preventDefault();interact()}
+});
+document.querySelectorAll('[data-dir]').forEach(b=>{
+ const dirs={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
+ let timer=null;const start=e=>{e.preventDefault();move(...dirs[b.dataset.dir]);timer=setInterval(()=>move(...dirs[b.dataset.dir]),145)};
+ const stop=()=>{clearInterval(timer);timer=null};
+ b.addEventListener('pointerdown',start);['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,stop));
+});
+document.getElementById('act').onclick=interact;
+function save(){localStorage.setItem('voidsignal-save',JSON.stringify({player,cat,talked,catPetted,steps,mode}));status.innerHTML='CHAPTER 00 · 無音区<br>記録：保存済み';openPanel('記録完了','この場所を記録した。',[['閉じる',closePanel]])}
+function load(){let s=localStorage.getItem('voidsignal-save');if(!s){openPanel('記録なし','まだ記録が見つからない。',[['閉じる',closePanel]]);return}try{let v=JSON.parse(s);player=v.player;cat=v.cat||{x:player.x-1,y:player.y};talked=v.talked;catPetted=!!v.catPetted;steps=v.steps;mode='world';draw();status.innerHTML='CHAPTER 00 · 無音区<br>記録：読み込み済み';openPanel('記録を復元','記録した場所から再開する。',[['閉じる',closePanel]])}catch(e){openPanel('読み込み失敗','記録を読み込めなかった。',[['閉じる',closePanel]])}}
+document.getElementById('save').onclick=save;document.getElementById('load').onclick=load;
+draw();
+})();
+</script>
+</body></html>
